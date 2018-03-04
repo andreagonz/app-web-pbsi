@@ -12,6 +12,7 @@ import itertools
 from urlparse import urljoin
 from urlparse import urlparse
 import esprima
+import urllib3
 
 '''
 Plan de Becarios en Seguridad Informática
@@ -103,13 +104,14 @@ def obten_ajax(lst):
     ajax = []
     visitor = MiVisitor(ajax)
     for js in lst:
-        try:
-            tree = esprima.parseScript(js[1], delegate=visitor)
-        except Exception as e:
-            error(str(e))
-            continue
-        visitor.url = js[0]
-        visitor.visit(tree)
+        if not js[1] is None:
+            try:
+                tree = esprima.parseScript(js[1], delegate=visitor)
+            except Exception as e:
+                error(str(e))
+                continue
+            visitor.url = js[0]
+            visitor.visit(tree)
     return ajax
 
 def obten_js(url, contenido, sesion, agente, cookie):
@@ -138,7 +140,7 @@ def genera_url(uri):
         return 'http://%s' % (uri)
     return uri
 
-def obten_sesion(proxy):
+def obten_sesion(proxy=None):
     """
     Regresa una sesión para realizar peticiones.
     Recibe:
@@ -146,10 +148,16 @@ def obten_sesion(proxy):
     Regresa:
         sesión
     """
-    if not proxy:
-        return requests
-    sesion = requests.session()
-    sesion.proxies = {'http':  'socks5://127.0.0.1:9050', 'https': 'socks5://127.0.0.1:9050'}
+    sesion = requests
+    if not proxy is None:
+        sesion = requests.session()
+        proxy_http = proxy
+        proxy_https = proxy
+        if not re.match('.*://.*', proxy):
+            proxy = re.match(r"(https?://)?(.+)", proxy).group(2)
+            proxy_http = 'http://%s' % proxy
+            proxy_https = 'https://%s' % proxy
+        sesion.proxies = {'http': proxy_http, 'https': proxy_https}
     return sesion
 
 def hacer_peticion(url, sesion, agente, cookie):
@@ -166,16 +174,17 @@ def hacer_peticion(url, sesion, agente, cookie):
     try:
         if agente is not None:
             headers = {'User-Agent': agente}
-            return sesion.get(url, headers=headers)
-        return sesion.get(url)
-    except ConnectionError:
-        error('Error en la conexion, tal vez el servidor no esta arriba.',True)
+            return sesion.get(url, headers=headers, verify=False)
+        return sesion.get(url, verify=False)
+    except ConnectionError as e:
+        error('Error en la conexion: ' + str(e), True)
     return None
 
 if __name__ == '__main__':
     # try:
+    urllib3.disable_warnings()
     ops = opciones()
-    sesion = obten_sesion(False)
+    sesion = obten_sesion(getattr(ops, 'proxy', None))
     url = genera_url(ops.uri)
     peticion = hacer_peticion(url, sesion, None, "")
     ajax = obten_ajax(obten_js(url, peticion.content, sesion, None, ""))
