@@ -92,6 +92,10 @@ def obten_src(url, src):
         return urljoin(url, src)
     return src
 
+def obten_data():
+    data = []
+    return data
+
 def peticion_ajax(t, sesion, agente, cookie, mostrar_respuesta, mostrar_funciones_asincronas):
     """
     Hace una petición usando una tupla de la forma (url, ajax), donde url
@@ -100,11 +104,13 @@ def peticion_ajax(t, sesion, agente, cookie, mostrar_respuesta, mostrar_funcione
     Recibe:
         t (tuple) - Tupla de la forma (string, esprima.Node)
     """
-    url = t[0]
+    url = t[0]    
     ajax = t[1]
     metodo = 'GET'
     data = None
     contentType = 'application/x-www-form-urlencoded; charset=UTF-8'
+    print "\n------------------------------\n"
+    print "Recurso: %s" % url
     for prop in ajax.arguments[0].properties:
         if prop.key.name == 'type' or prop.key.name == 'method':
             metodo = prop.value.value if prop.value.type == "Literal" else metodo
@@ -116,12 +122,9 @@ def peticion_ajax(t, sesion, agente, cookie, mostrar_respuesta, mostrar_funcione
             data = prop.value.value if prop.value.type == "Literal" else None
             if data is None:
                 data = prop.value
-    print "\n------------------------------\n"
-    print "Recurso: %s" % url
     if mostrar_funciones_asincronas:
         print "Funcion:"
         print ajax
-
     print metodo
     print contentType
     # print data if not data is None else ''
@@ -264,7 +267,14 @@ if __name__ == '__main__':
     sesion = obten_sesion(proxy)
     url = genera_url(args[0])
     peticion = hacer_peticion(url, sesion, agente, cookie)
-    ajax = obten_ajax(obten_js(url, peticion.content, sesion, agente, cookie))
+    ajax = None
+    if ops.archivo:
+        f = open(args[0])
+        js = f.read()
+        f.close()
+        ajax = obten_ajax([('', js)])
+    else:
+        ajax = obten_ajax(obten_js(url, peticion.content, sesion, agente, cookie))
     for x in ajax:
         peticion_ajax(x, sesion, agente, cookie, mostrar_respuesta, mostrar_funciones_asincronas)
 
