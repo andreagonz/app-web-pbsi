@@ -13,6 +13,7 @@ from urlparse import urljoin
 from urlparse import urlparse
 import esprima
 import urllib3
+import random
 
 '''
 Plan de Becarios en Seguridad Informática
@@ -36,7 +37,7 @@ class VisitorAjax(esprima.NodeVisitor):
     def visit_CallExpression(self, node):
         ob = node.callee.object.name if node.callee.object else ''
         prop = node.callee.property.name if node.callee.property else ''
-        if prop == 'ajax' and (ob == 'jQuery' or ob == '$'):
+        if (prop == 'ajax' or prop == 'get' or prop == 'post') and (ob == 'jQuery' or ob == '$'):
             self.lst.append((self.url, node))
         self.generic_visit(node)
 
@@ -73,12 +74,18 @@ def obten_src(url, src):
     Regresa:
         string - Un URL
     """
+    if src is None:
+        return url
+    src = re.match('^(//)?(.+)', src).group(2)
     urlp = urlparse(src)
     if len(urlp.netloc) == 0:
         return urljoin(url, src)
     return src
 
 def imprime_peticion(peticion, body):
+    """
+    Imprime una petición HTTP.
+    """
     if peticion is None:
         print 'Error en petición\n'
     else:
@@ -89,6 +96,9 @@ def imprime_peticion(peticion, body):
                                                     for k, v in peticion.headers.items()), b)
 
 def imprime_respuesta(respuesta, body):
+    """
+    Imprime la respuesta HTTP del servidor.
+    """
     print "Respuesta:"
     if respuesta is None:
         print 'Error en respuesta\n'
@@ -100,13 +110,55 @@ def imprime_respuesta(respuesta, body):
                                           '\n'.join('%s: %s' % (k, v)
                                                     for k, v in respuesta.headers.items()), b)
 
-def genera_str_aleatoria():
-    return "hola"
+def numachar(n):
+    """
+    Mapea el entero n a un carácter en base64.
+    """
+    if n == 62:
+        return '+';
+    if n == 63:
+        return '/';
+    if n < 26:
+        return chr(n + ord('A'))
+    if n < 52:
+        return chr(n - 26 + ord('a'))
+    else:
+        return chr(n - 52 + ord('0'))
 
-def get_valor(v):
-    return v if not v is None else genera_str_aleatoria()
+def sig_char():
+    """
+    Regresa un carácter en base64.
+    """
+    return numachar(random.randint(0, 63))
+    
+def genera_str_aleatoria(n, m):
+    """
+    Genera una cadena aleatoria de longitud n a m.
+    """
+    s = []
+    for x in range(random.randint(n, m)):
+        s.append(sig_char())
+    return ''.join(s)
 
+def regresa_kv(p):
+    """
+    Regresa el nombre una llave y su valor en un ObjectExpression
+    """
+    k = None
+    v = None
+    k = p.key.name if p.key.type == 'Identifier' else k
+    k = p.key.value if p.key.type == 'Literal' else k
+    k = genera_str_aleatoria(3, 10) if k is None else k
+    v = p.value.value if p.value.type == 'Literal' else v
+    v = genera_str_aleatoria(3, 10) if v is None else v
+    return k,v
+    
 def obten_data(valor, metodo):
+    """
+    Obtiene los datos especificados en la sección data de la función
+    asíncrona y los devuelve como cadena, como diccionario o nulos
+    si no se sabe que datos recolectar.
+    """
     data = valor.value if valor.type == "Literal" else None
     if metodo == 'POST' and not data is None:
         return data
@@ -117,19 +169,39 @@ def obten_data(valor, metodo):
             m = re.match('(.+)=(.+)', l)
             dicc[m.group(1).strip()] = m.group(2).strip()
         return dicc
-    ### CHECK FOR "U" = "hola"
     if valor.type == "ObjectExpression":
         if metodo == 'GET':
             dicc = {}
             for p in valor.properties:
-                dicc[get_valor(p.key.name)] = get_valor(p.value.value)
+                k, v = regresa_kv(p)
+                dicc[k] = v
             return dicc
         elif metodo == 'POST':
             s = ''
             for p in valor.properties:
-                s += '%s=%s&' % (get_valor(p.key.name), get_valor(p.value.value))
+                k, v = regresa_kv(p)
+                s += '%s=%s&' % (k, v)
             return s[:-1]
-    
+    return None
+
+def genera_data(ct):
+    """
+    Genera datos aleatorios basándose en el Content-Type
+    """
+    if ct == 'text/plain':
+        return genera_str_aleatoria(10, 20)
+    elif ct == 'text/css':
+        return 'body {\n color: %s; }' % genera_str_aleatoria(5, 8)
+    elif ct == 'text/csv':
+        return '%s,%s,%s' % (genera_str_aleatoria(5, 8), genera_str_aleatoria(5, 8), genera_str_aleatoria(5, 8))
+    elif ct == 'text/html':
+        return '<h1>%s</h1>' % genera_str_aleatoria(5, 8)
+    elif ct == 'text/xml':
+        return '<hola>%s</hola>' % genera_str_aleatoria(5, 8)
+    elif re.match('(?:image|audio|video|application)/.+', ct):
+        return genera_str_aleatoria(50, 200)
+    return None
+
 def peticion_ajax(t, sesion, agente, cookie, mostrar_respuesta, mostrar_funciones_asincronas):
     """
     Hace una petición usando una tupla de la forma (url, ajax), donde url
@@ -140,26 +212,34 @@ def peticion_ajax(t, sesion, agente, cookie, mostrar_respuesta, mostrar_funcione
     """
     url = t[0]    
     ajax = t[1]
-    metodo = 'GET'
+    tipo = ajax.callee.property.name
+    metodo = 'POST' if tipo == 'post' else 'GET'
     data = None
-    contentType = 'application/x-www-form-urlencoded; charset=UTF-8'
-    print "Recurso: %s" % url
+    contentType = 'application/x-www-form-urlencoded; charset=UTF-8'    
+    print "Recurso: %s" % url    
     if len(ajax.arguments) == 0:
         error("Función AJAX sin datos")
-        return
-    i = 0
-    if len(ajax.arguments) == 2:
-        i = 1
-        url = genera_url(ajax.arguments[0].value)
-    for prop in ajax.arguments[i].properties:
-        if prop.key.name == 'type' or prop.key.name == 'method':
-            metodo = prop.value.value if prop.value.type == "Literal" else metodo
-        elif prop.key.name == 'url':
-            url = genera_url(obten_src(url, prop.value.value)) if prop.value.type == "Literal" else genera_url(url)
-        elif prop.key.name == 'contentType':
-            contentType = prop.value.value if prop.value.type == "Literal" else contentType
-        elif prop.key.name == 'data':
-            data = obten_data(prop.value, metodo)
+        return    
+    if tipo == 'ajax':
+        i = 0
+        if len(ajax.arguments) == 2:
+            i = 1
+            url = genera_url(ajax.arguments[0].value)
+        for prop in ajax.arguments[i].properties:
+            if prop.key.name == 'type' or prop.key.name == 'method':
+                metodo = prop.value.value if prop.value.type == "Literal" else metodo
+            elif prop.key.name == 'url':
+                url = genera_url(obten_src(url, prop.value.value)) if prop.value.type == "Literal" else genera_url(url)
+            elif prop.key.name == 'contentType':
+                contentType = prop.value.value if prop.value.type == "Literal" else contentType
+            elif prop.key.name == 'data':
+                data = obten_data(prop.value, metodo)
+    else:
+        url = genera_url(obten_src(url, ajax.arguments[0].value))
+        for x in range(1, len(ajax.arguments)):
+            if ajax.arguments[x].type == 'ObjectExpression' or ajax.arguments[x].type == 'Literal':
+                data = obten_data(ajax.arguments[x], metodo)
+    data = genera_data(contentType) if data is None and metodo == 'POST' else data
     if mostrar_funciones_asincronas:
         print "\nFuncion asíncrona:"
         print ajax
@@ -219,7 +299,7 @@ def genera_url(uri):
     Regresa:
         str - URL generada
     """
-    if not re.match('^https?://', uri):
+    if not re.match('https?://', uri):
         return 'http://%s' % (uri)
     return uri
 
@@ -325,7 +405,6 @@ if __name__ == '__main__':
         ajax = obten_ajax(obten_js(url, peticion.content, sesion, agente, cookie))
     for x in ajax:
         peticion_ajax(x, sesion, agente, cookie, mostrar_respuesta, mostrar_funciones_asincronas)
-
     # except Exception as e:
         # error('Ocurrió un error inesperado')
         # error(e, True)
