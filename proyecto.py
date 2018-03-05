@@ -40,20 +40,6 @@ class VisitorAjax(esprima.NodeVisitor):
             self.lst.append((self.url, node))
         self.generic_visit(node)
 
-class VisitorData(esprima.NodeVisitor):
-
-    def __init__(self, data):
-        self.data = data
-        self.resultado = None
-        super(VisitorAjax, self).__init__()
-        
-    def visit_CallExpression(self, node):
-        ob = node.callee.object.name if node.callee.object else ''
-        prop = node.callee.property.name if node.callee.property else ''
-        if prop == 'ajax' and (ob == 'jQuery' or ob == '$'):
-            self.lst.append((self.url, node))
-        self.generic_visit(node)
-
 def opciones():
     """
     Regresa un objeto que permite leer argumentos ingresados al ejecutar el programa.
@@ -114,6 +100,12 @@ def imprime_respuesta(respuesta, body):
                                           '\n'.join('%s: %s' % (k, v)
                                                     for k, v in respuesta.headers.items()), b)
 
+def genera_str_aleatoria():
+    return "hola"
+
+def get_valor(v):
+    return v if not v is None else genera_str_aleatoria()
+
 def obten_data(valor, metodo):
     data = valor.value if valor.type == "Literal" else None
     if metodo == 'POST' and not data is None:
@@ -125,7 +117,19 @@ def obten_data(valor, metodo):
             m = re.match('(.+)=(.+)', l)
             dicc[m.group(1).strip()] = m.group(2).strip()
         return dicc
-
+    ### CHECK FOR "U" = "hola"
+    if valor.type == "ObjectExpression":
+        if metodo == 'GET':
+            dicc = {}
+            for p in valor.properties:
+                dicc[get_valor(p.key.name)] = get_valor(p.value.value)
+            return dicc
+        elif metodo == 'POST':
+            s = ''
+            for p in valor.properties:
+                s += '%s=%s&' % (get_valor(p.key.name), get_valor(p.value.value))
+            return s[:-1]
+    
 def peticion_ajax(t, sesion, agente, cookie, mostrar_respuesta, mostrar_funciones_asincronas):
     """
     Hace una petición usando una tupla de la forma (url, ajax), donde url
@@ -140,17 +144,24 @@ def peticion_ajax(t, sesion, agente, cookie, mostrar_respuesta, mostrar_funcione
     data = None
     contentType = 'application/x-www-form-urlencoded; charset=UTF-8'
     print "Recurso: %s" % url
-    for prop in ajax.arguments[0].properties:
+    if len(ajax.arguments) == 0:
+        error("Función AJAX sin datos")
+        return
+    i = 0
+    if len(ajax.arguments) == 2:
+        i = 1
+        url = genera_url(ajax.arguments[0].value)
+    for prop in ajax.arguments[i].properties:
         if prop.key.name == 'type' or prop.key.name == 'method':
             metodo = prop.value.value if prop.value.type == "Literal" else metodo
         elif prop.key.name == 'url':
-            url = obten_src(url, prop.value.value) if prop.value.type == "Literal" else url
+            url = genera_url(obten_src(url, prop.value.value)) if prop.value.type == "Literal" else genera_url(url)
         elif prop.key.name == 'contentType':
             contentType = prop.value.value if prop.value.type == "Literal" else contentType
         elif prop.key.name == 'data':
             data = obten_data(prop.value, metodo)
     if mostrar_funciones_asincronas:
-        print "\nFuncion:"
+        print "\nFuncion asíncrona:"
         print ajax
     peticion = hacer_peticion(url, sesion, agente, cookie, contentType, data, metodo)
     if not peticion is None:
