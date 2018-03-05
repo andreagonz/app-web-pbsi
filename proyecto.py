@@ -265,8 +265,8 @@ if __name__ == '__main__':
         print "	Mostrar respuesta: %s" % ('Ninguna' if mostrar_respuesta is None else mostrar_respuesta)
         print "	Mostrar funciones asíncronas: %s" % str(mostrar_funciones_asincronas)
     sesion = obten_sesion(proxy)
-    url = genera_url(args[0])
-    peticion = hacer_peticion(url, sesion, agente, cookie)
+    url = genera_url(args[0])    
+    
     ajax = None
     if ops.archivo:
         f = open(args[0])
@@ -274,6 +274,7 @@ if __name__ == '__main__':
         f.close()
         ajax = obten_ajax([('', js)])
     else:
+        peticion = hacer_peticion(url, sesion, agente, cookie)
         ajax = obten_ajax(obten_js(url, peticion.content, sesion, agente, cookie))
     for x in ajax:
         peticion_ajax(x, sesion, agente, cookie, mostrar_respuesta, mostrar_funciones_asincronas)
