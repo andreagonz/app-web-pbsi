@@ -92,9 +92,39 @@ def obten_src(url, src):
         return urljoin(url, src)
     return src
 
-def obten_data():
-    data = []
-    return data
+def imprime_peticion(peticion, body):
+    if peticion is None:
+        print 'Error en petición\n'
+    else:
+        b = "\n%s\n" % peticion.body if body and not peticion.body is None else ''
+        urn = re.match('(https?://)?(.+)', peticion.url).group(2)
+        print '%s %s HTTP/1.1\n%s\n%s\n' % (peticion.method, urn,
+                                          '\n'.join('%s: %s' % (k, v)
+                                                    for k, v in peticion.headers.items()), b)
+
+def imprime_respuesta(respuesta, body):
+    print "Respuesta:"
+    if respuesta is None:
+        print 'Error en respuesta\n'
+    else:
+        b = respuesta.text if body and not respuesta.text is None else ''
+        urn = re.match('(https?://)?(.+)', respuesta.url).group(2)
+        print 'HTTP/1.1 %s %s\n%s\n%s' % (respuesta.status_code,
+                                          requests.status_codes._codes[respuesta.status_code][0],
+                                          '\n'.join('%s: %s' % (k, v)
+                                                    for k, v in respuesta.headers.items()), b)
+
+def obten_data(valor, metodo):
+    data = valor.value if valor.type == "Literal" else None
+    if metodo == 'POST' and not data is None:
+        return data
+    if metodo == 'GET' and not data is None:
+        dicc = {}
+        lst = re.findall('[^&]+=[^&]+', data)
+        for l in lst:
+            m = re.match('(.+)=(.+)', l)
+            dicc[m.group(1).strip()] = m.group(2).strip()
+        return dicc
 
 def peticion_ajax(t, sesion, agente, cookie, mostrar_respuesta, mostrar_funciones_asincronas):
     """
@@ -109,7 +139,6 @@ def peticion_ajax(t, sesion, agente, cookie, mostrar_respuesta, mostrar_funcione
     metodo = 'GET'
     data = None
     contentType = 'application/x-www-form-urlencoded; charset=UTF-8'
-    print "\n------------------------------\n"
     print "Recurso: %s" % url
     for prop in ajax.arguments[0].properties:
         if prop.key.name == 'type' or prop.key.name == 'method':
@@ -119,17 +148,21 @@ def peticion_ajax(t, sesion, agente, cookie, mostrar_respuesta, mostrar_funcione
         elif prop.key.name == 'contentType':
             contentType = prop.value.value if prop.value.type == "Literal" else contentType
         elif prop.key.name == 'data':
-            data = prop.value.value if prop.value.type == "Literal" else None
-            if data is None:
-                data = prop.value
+            data = obten_data(prop.value, metodo)
     if mostrar_funciones_asincronas:
-        print "Funcion:"
+        print "\nFuncion:"
         print ajax
-    print metodo
-    print contentType
-    # print data if not data is None else ''
-    if mostrar_respuesta:
-        pass
+    peticion = hacer_peticion(url, sesion, agente, cookie, contentType, data, metodo)
+    if not peticion is None:
+        print '\nPetición realizada:'
+        imprime_peticion(peticion.request, True)
+        if mostrar_respuesta == "cabeceras":            
+            imprime_respuesta(peticion, False)
+        elif mostrar_respuesta == "completa":
+            imprime_respuesta(peticion, True)
+        else:
+            print "Código de respuesta: %s\n" % peticion.status_code
+    print "------------------------------\n"
     
 def obten_ajax(lst):
     """
@@ -199,7 +232,7 @@ def obten_sesion(proxy=None):
         sesion.proxies = {'http': proxy_http, 'https': proxy_https}
     return sesion
 
-def hacer_peticion(url, sesion, agente=None, cookie=None, contentType=None, data=None):
+def hacer_peticion(url, sesion, agente=None, cookie=None, contentType=None, data=None, metodo='GET'):
     """
     Hace una petición al servidor.
     Recibe:
@@ -216,11 +249,14 @@ def hacer_peticion(url, sesion, agente=None, cookie=None, contentType=None, data
             headers['User-Agent'] = agente
         if cookie is not None:
             headers['Cookie'] = cookie
-        if contentType is not None:
+        if contentType is not None and metodo == 'POST':
             headers['Content-Type'] = contentType
-        return sesion.get(url, headers=headers, verify=False)
+        if metodo == 'GET':
+            return sesion.get(url, headers=headers, verify=False, params=data)
+        elif metodo == 'POST':
+            return sesion.post(url, headers=headers, verify=False, data=data)
     except ConnectionError as e:
-        error('Error en la conexion: ' + str(e), True)
+        error('Error en la conexion: ' + str(e), False)
     return None
 
 def leer_configuracion(archivo):
@@ -265,14 +301,14 @@ if __name__ == '__main__':
         print "	Mostrar respuesta: %s" % ('Ninguna' if mostrar_respuesta is None else mostrar_respuesta)
         print "	Mostrar funciones asíncronas: %s" % str(mostrar_funciones_asincronas)
     sesion = obten_sesion(proxy)
-    url = genera_url(args[0])    
-    
+    url = genera_url(args[0])        
     ajax = None
+    print "\n------------------------------\n"
     if ops.archivo:
         f = open(args[0])
         js = f.read()
         f.close()
-        ajax = obten_ajax([('', js)])
+        ajax = obten_ajax([(args[0], js)])
     else:
         peticion = hacer_peticion(url, sesion, agente, cookie)
         ajax = obten_ajax(obten_js(url, peticion.content, sesion, agente, cookie))
